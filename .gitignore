@@ -1,0 +1,14 @@
+# Julia artifacts
+Manifest.toml
+*.jld2
+*.jl.cov
+*.jl.*.cov
+*.jl.mem
+
+# Julia depot/precompile cache
+deps/deps.jl
+/docs/build/
+
+# OS artifacts
+.DS_Store
+Thumbs.db
