@@ -9,11 +9,11 @@ usually written as an explicit broadcast:
 getproperty.(A, :x)
 ```
 
-`PropertyArray` provides a wrapper where property access is forwarded to the
+`PArray` provides a wrapper where property access is forwarded to the
 elements:
 
 ```julia
-bp = PropertyArray(A)
+bp = PArray(A)
 bp.x
 ```
 
@@ -28,15 +28,15 @@ array. Indexing, `size`, `axes`, `reshape`, `map`, `filter`, and similar
 operations remain ordinary array operations; the main special case is
 `getproperty`. The original array is available as `.data`.
 
-`PropertyObject` is a small companion interface for registering computed
+`PObject` is a small companion interface for registering computed
 attributes on element types. For example, a calculation such as
-`angle.(A)` can be exposed as `PropertyArray(A).angle` after registration.
+`angle.(A)` can be exposed as `PArray(A).angle` after registration.
 
 The package provides two complementary tools:
 
-- **`PropertyArray`** — an `AbstractArray` wrapper that forwards property
+- **`PArray`** — exported alias for `PropertyArray`, an `AbstractArray` wrapper that forwards property
   access to its elements.
-- **`PropertyObject`** — an abstract type that lets you register functions as
+- **`PObject`** — exported alias for `PropertyObject`, an abstract type that lets you register functions as
   "virtual attributes" of a struct, accessible with `.` syntax.
 
 ---
@@ -46,7 +46,7 @@ The package provides two complementary tools:
 ```julia
 using PropertyArrays
 
-struct Particle <: PropertyObject
+struct Particle <: PObject
     x::Float64
     y::Float64
 end
@@ -54,11 +54,11 @@ end
 @register angle(p::Particle) = atan(p.y, p.x) |> rad2deg
 @register radius(p::Particle) = sqrt(p.x^2 + p.y^2)
 
-particles = PropertyArray([Particle(i+0.0, j+0.0) for i in 1:2, j in 1:3])
+particles = PArray([Particle(i+0.0, j+0.0) for i in 1:2, j in 1:3])
 ```
 
 Here `x` and `y` are particle positions. A plain array would use
-`getproperty.(A, :x)` to collect all `x` positions. A `PropertyArray` wrapper
+`getproperty.(A, :x)` to collect all `x` positions. A `PArray` wrapper
 uses property syntax:
 
 ```julia
@@ -66,7 +66,7 @@ particles.x
 ```
 
 ```text
-2×3 PropertyArray{Float64, 2}:
+2×3 PArray{Float64, 2}:
  1.0  1.0  1.0
  2.0  2.0  2.0
 ```
@@ -78,7 +78,7 @@ particles.angle
 ```
 
 ```text
-2×3 PropertyArray{Float64, 2}:
+2×3 PArray{Float64, 2}:
  45.0     63.4349  71.5651
  26.5651  45.0     56.3099
 ```
@@ -111,13 +111,13 @@ queried.radius
 ```
 
 ```text
-3-element PropertyArray{Float64, 1}:
+3-element PArray{Float64, 1}:
  1.4142135623730951
  2.23606797749979
  2.8284271247461903
 ```
 
-The filtered result is still a `PropertyArray`, so it can be passed to later
+The filtered result is still a `PArray`, so it can be passed to later
 array-style work. For example, if each selected particle requires a
 heavier calculation:
 
@@ -134,7 +134,7 @@ end
 
 ## Registering Attributes
 
-`PropertyObject` is an abstract type. Any struct that inherits from it can
+`PObject` is an alias for `PropertyObject`. Any struct that inherits from it can
 have functions registered as accessible attributes.
 
 ### In Package Code
@@ -188,37 +188,37 @@ true
 
 ## Array Behavior
 
-`PropertyArray` wraps an `AbstractArray`. The wrapped array is available as
+`PArray` is an alias for `PropertyArray`, which wraps an `AbstractArray`. The wrapped array is available as
 `.data`. For any other property name, property access is forwarded
 element-wise:
 
 ```julia
-particles.x       # PropertyArray of x values
-particles.angle   # PropertyArray of registered angle values
+particles.x       # PArray of x values
+particles.angle   # PArray of registered angle values
 ```
 
-For operations other than property access, `PropertyArray` follows the ordinary
+For operations other than property access, `PArray` follows the ordinary
 `AbstractArray` interface and preserves the behavior of the wrapped
 container where possible:
 
 ```julia
 size(particles)              # (2, 3)
 particles[1, 2]              # Particle(1.0, 2.0)
-particles[1, :]              # a 1D PropertyArray slice
+particles[1, :]              # a 1D PArray slice
 reshape(particles, 6)        # flatten to 1D
-map(p -> p.x^2, particles)   # returns a PropertyArray via similar
+map(p -> p.x^2, particles)   # returns a PArray via similar
 ```
 
-Code that works with arrays generally accepts a `PropertyArray` as well. This
+Code that works with arrays generally accepts a `PArray` as well. This
 includes standard tools such as `map` and `filter`, and third-party
 map-like functions such as `Distributed.pmap` or `ThreadsX.map`.
 
 Constructors:
 
 ```julia
-PropertyArray(data)            # wrap an existing array
-PropertyArray(Float64, 10, 20) # 10x20 uninitialized array of Float64
-PropertyArray(Float64, (3, 4)) # tuple form
+PArray(data)            # wrap an existing array
+PArray(Float64, 10, 20) # 10x20 uninitialized array of Float64
+PArray(Float64, (3, 4)) # tuple form
 ```
 
 ---
@@ -234,7 +234,7 @@ Because dispatch is used, attributes registered on a supertype are
 automatically visible on all subtypes:
 
 ```julia
-abstract type Animal <: PropertyObject end
+abstract type Animal <: PObject end
 
 @register sound(a::Animal) = "generic noise"
 
@@ -291,8 +291,10 @@ p  = translate(nt, Point)           # Point(1.0, 2.0)
 
 | Name             | Kind        | Purpose                                |
 |------------------|-------------|----------------------------------------|
-| `PropertyArray`  | struct      | array with element-wise property access |
-| `PropertyObject` | abstract    | base type for attribute registration   |
+| `PArray`         | alias    | alias for `PropertyArray` |
+| `PObject`        | alias    | alias for `PropertyObject` |
+| `PropertyArray`  | struct   | array with element-wise property access |
+| `PropertyObject` | abstract | base type for attribute registration |
 | `register`       | function    | register a function as an attribute    |
 | `@register`      | macro       | define and register in one step        |
 | `@register_fn`   | macro       | register an already-defined function   |
@@ -305,7 +307,7 @@ Not exported (call with `PropertyArrays.` prefix):
 | `PropertyArrays.save` | function | JLD2 serialization   |
 | `PropertyArrays.load` | function | JLD2 deserialization |
 
-All exported names also have inline docstrings; use `?PropertyObject`,
+All exported names also have inline docstrings; use `?PArray`, `?PObject`,
 `?register`, etc. at the REPL for details.
 
 ---

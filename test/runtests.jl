@@ -1,12 +1,12 @@
 """
 Test coverage includes:
 
-- `PropertyObject` field access, registered computed attributes, `hasproperty`,
+- `PObject` field access, registered computed attributes, `hasproperty`,
   and missing-property errors.
 - `register` and `@register` attribute registration paths.
-- `PropertyArray` behavior: size, axes, indexing, slicing, property forwarding,
+- `PArray` behavior: size, axes, indexing, slicing, property forwarding,
   `reshape`, `map`, and `filter`.
-- `PropertyArray` constructors and mutation through `setindex!`.
+- `PArray` constructors and mutation through `setindex!`.
 - `translate` conversions between structs and `NamedTuple`s.
 - `PropertyArrays.save` / `PropertyArrays.load` JLD2 round trips, including typed and
   custom reconstruction.
@@ -15,7 +15,10 @@ Test coverage includes:
 using PropertyArrays
 using Test
 
-struct TestParticle <: PropertyObject
+@test PArray === PropertyArray
+@test PObject === PropertyObject
+
+struct TestParticle <: PObject
     x::Float64
     y::Float64
 end
@@ -26,7 +29,7 @@ end
     atan(p.y, p.x) |> rad2deg
 end
 
-@testset "PropertyObject attributes" begin
+@testset "PObject attributes" begin
     p = TestParticle(3.0, 4.0)
 
     @test p.x == 3.0
@@ -39,7 +42,7 @@ end
 end
 
 @testset "Dynamic registration" begin
-    struct DynamicParticle <: PropertyObject
+    struct DynamicParticle <: PObject
         x::Int
         y::Int
     end
@@ -51,17 +54,17 @@ end
     @test DynamicParticle(-2, 5).manhattan == 7
 end
 
-@testset "PropertyArray behavior" begin
-    particles = PropertyArray([TestParticle(i, j) for i in 1.0:2.0, j in 3.0:5.0])
+@testset "PArray behavior" begin
+    particles = PArray([TestParticle(i, j) for i in 1.0:2.0, j in 3.0:5.0])
 
     @test size(particles) == (2, 3)
     @test axes(particles) == (Base.OneTo(2), Base.OneTo(3))
     @test particles.data isa Matrix{TestParticle}
     @test particles[1, 2] == TestParticle(1.0, 4.0)
-    @test particles[:, 1] isa PropertyArray
+    @test particles[:, 1] isa PArray
     @test particles[:, 1].data == TestParticle.(1.0:2.0, 3.0)
 
-    @test particles.x isa PropertyArray
+    @test particles.x isa PArray
     @test particles.x.data == [1.0 1.0 1.0; 2.0 2.0 2.0]
     @test particles.y.data == [3.0 4.0 5.0; 3.0 4.0 5.0]
     @test particles.radius.data ≈ [sqrt(10) sqrt(17) sqrt(26); sqrt(13) sqrt(20) sqrt(29)]
@@ -70,27 +73,27 @@ end
     @test !hasproperty(particles, :missing)
 
     flattened = reshape(particles, 6)
-    @test flattened isa PropertyArray
+    @test flattened isa PArray
     @test size(flattened) == (6,)
 
     doubled_x = map(p -> 2p.x, particles)
-    @test doubled_x isa PropertyArray
+    @test doubled_x isa PArray
     @test doubled_x.data == [2.0 2.0 2.0; 4.0 4.0 4.0]
 
     selected = filter(p -> p.radius > 4.0, particles)
-    @test selected isa PropertyArray
+    @test selected isa PArray
     @test selected.radius.data == [sqrt(17), sqrt(20), sqrt(26), sqrt(29)]
 end
 
 @testset "Constructors and mutation" begin
-    particles = PropertyArray(TestParticle, 2, 1)
+    particles = PArray(TestParticle, 2, 1)
     particles[1, 1] = TestParticle(3.0, 4.0)
     particles[2, 1] = TestParticle(5.0, 12.0)
 
-    @test particles isa PropertyArray{TestParticle, 2}
+    @test particles isa PArray{TestParticle, 2}
     @test particles.radius.data == [5.0; 13.0;;]
 
-    vector = PropertyArray(Int, (3,))
+    vector = PArray(Int, (3,))
     vector[1] = 10
     vector[2] = 20
     vector[3] = 30
@@ -106,16 +109,16 @@ end
 
     mktempdir() do dir
         filename = joinpath(dir, "particles.jld2")
-        particles = PropertyArray([TestParticle(1.0, 2.0), TestParticle(3.0, 4.0)])
+        particles = PArray([TestParticle(1.0, 2.0), TestParticle(3.0, 4.0)])
 
         PropertyArrays.save(filename, particles)
 
         loaded_nt = PropertyArrays.load(filename)
-        @test loaded_nt isa PropertyArray
+        @test loaded_nt isa PArray
         @test loaded_nt.data == translate.(particles.data)
 
         loaded_particles = PropertyArrays.load(TestParticle, filename)
-        @test loaded_particles isa PropertyArray
+        @test loaded_particles isa PArray
         @test loaded_particles.data == particles.data
 
         loaded_custom = PropertyArrays.load(filename) do row

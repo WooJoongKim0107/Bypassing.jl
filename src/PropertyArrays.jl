@@ -1,5 +1,5 @@
 module PropertyArrays
-export PropertyObject, register, @register, @register_fn, PropertyArray, translate
+export PropertyObject, PObject, register, @register, @register_fn, PropertyArray, PArray, translate
 
 using JLD2: save_object, load_object
 
@@ -11,14 +11,17 @@ using JLD2: save_object, load_object
     abstract type PropertyObject
 
 Base type for structs that opt into the attribute-registration system.
+`PObject` is an exported alias for `PropertyObject`.
+
 A function registered for a `PropertyObject` subtype can be accessed as if
-it were a real field of that type. This is useful with [`PropertyArray`](@ref):
-after registering a calculation such as `angle(p)`, a `PropertyArray` of
-particles can expose it as `particles.angle` instead of `angle.(particles)`.
+it were a real field of that type. This is useful with `PropertyArray`
+(`PArray` is an exported alias): after registering a calculation such as
+`angle(p)`, a property array of particles can expose it as
+`particles.angle` instead of `angle.(particles)`.
 
 # Example
 ```julia
-struct Particle <: PropertyObject
+struct Particle <: PObject
     x::Float64
     y::Float64
 end
@@ -34,6 +37,13 @@ p.radius_sq  # 25.0
 See [`register`](@ref) and [`@register`](@ref) for ways to add attributes.
 """
 abstract type PropertyObject end
+
+"""
+    PObject
+
+Alias for `PropertyObject`.
+"""
+const PObject = PropertyObject
 
 # Marker function: dispatch target for registered attributes.
 # A registered attribute (T, :name => f) becomes a method:
@@ -192,22 +202,22 @@ end
 An `AbstractArray` wrapper that forwards property access to its elements.
 
 Instead of writing `getproperty.(A, :x)` to ask every element of an array
-for its `x` attribute, wrap the array as `PropertyArray(A)` and write
-`PropertyArray(A).x`. The container forwards the attribute request to each
+for its `x` attribute, wrap the array as `PArray(A)` and write
+`PArray(A).x`. The container forwards the attribute request to each
 element and returns the collected result.
 
 For any property name `s` other than `:data`, `bp.s` evaluates to
-`PropertyArray(getproperty.(bp, s))` — i.e. each element is asked for its `s`
-attribute, and the results are collected into a new `PropertyArray` of the
-same shape.
+`PArray(getproperty.(bp, s))` — i.e. each element is asked for its `s`
+attribute, and the results are collected into a new `PropertyArray`
+(`PArray`) of the same shape.
 
 The underlying array is accessible as `bp.data`.
 
 # Constructors
 ```julia
-PropertyArray(data::AbstractArray)         # wrap an existing array
-PropertyArray(T, dims::NTuple{N, Int})     # uninitialized array of element type T
-PropertyArray(T, dims::Int...)             # same, with separate dimension arguments
+PArray(data::AbstractArray)         # alias for PropertyArray(data)
+PArray(T, dims::NTuple{N, Int})     # alias for PropertyArray(T, dims)
+PArray(T, dims::Int...)             # alias for PropertyArray(T, dims...)
 ```
 
 # Examples
@@ -217,22 +227,29 @@ struct Point
     y::Float64
 end
 
-pts = PropertyArray([Point(i+0.0, j+0.0) for i in 1:2, j in 1:3])
+pts = PArray([Point(i+0.0, j+0.0) for i in 1:2, j in 1:3])
 size(pts)    # (2, 3)
-pts.x        # 2×3 PropertyArray of x values
-pts.y        # 2×3 PropertyArray of y values
+pts.x        # 2×3 PArray of x values
+pts.y        # 2×3 PArray of y values
 pts[1, 2]    # Point(1.0, 2.0)
 ```
 
 Standard `AbstractArray` operations (`map`, `filter`, `broadcast`,
-indexing, `reshape`, etc.) all work as expected. Because `PropertyArray`
+indexing, `reshape`, etc.) all work as expected. Because `PropertyArray` (`PArray`)
 participates in the array protocol, third-party map-likes such as
-`Distributed.pmap` and `ThreadsX.map` accept a `PropertyArray` directly.
+`Distributed.pmap` and `ThreadsX.map` accept a `PArray` directly.
 """
 struct PropertyArray{T, N, A<:AbstractArray{T, N}} <: AbstractArray{T, N}
     data::A
     PropertyArray(data::A) where {T, N, A<:AbstractArray{T, N}} = new{T, N, A}(data)
 end
+
+"""
+    PArray
+
+Alias for `PropertyArray`.
+"""
+const PArray = PropertyArray
 
 PropertyArray(::Type{T}, shape::NTuple{N, Int}) where {T, N} = PropertyArray(Array{T, N}(undef, shape))
 PropertyArray(::Type{T}, shape::Int...) where {T} = PropertyArray(T, shape)
@@ -272,9 +289,9 @@ end
 
 function Base.summary(io::IO, A::PropertyArray{T,N}) where {T,N}
     if N == 1
-        print(io, length(A), "-element PropertyArray{", T, ", ", N, "}")
+        print(io, length(A), "-element PArray{", T, ", ", N, "}")
     else
-        print(io, join(size(A), '×'), " PropertyArray{", T, ", ", N, "}")
+        print(io, join(size(A), '×'), " PArray{", T, ", ", N, "}")
     end
 end
 
