@@ -1,24 +1,24 @@
-module Bypassing
-export Bypassable, register, @register, @register_fn, Bypass, translate
+module PropertyArrays
+export PropertyObject, register, @register, @register_fn, PropertyArray, translate
 
 using JLD2: save_object, load_object
 
 # ============================================================================
-# Bypassable AbstractType
+# PropertyObject AbstractType
 # ============================================================================
 
 """
-    abstract type Bypassable
+    abstract type PropertyObject
 
 Base type for structs that opt into the attribute-registration system.
-A function registered for a `Bypassable` subtype can be accessed as if
-it were a real field of that type. This is useful with [`Bypass`](@ref):
-after registering a calculation such as `angle(p)`, a `Bypass` array of
+A function registered for a `PropertyObject` subtype can be accessed as if
+it were a real field of that type. This is useful with [`PropertyArray`](@ref):
+after registering a calculation such as `angle(p)`, a `PropertyArray` of
 particles can expose it as `particles.angle` instead of `angle.(particles)`.
 
 # Example
 ```julia
-struct Particle <: Bypassable
+struct Particle <: PropertyObject
     x::Float64
     y::Float64
 end
@@ -33,14 +33,14 @@ p.radius_sq  # 25.0
 
 See [`register`](@ref) and [`@register`](@ref) for ways to add attributes.
 """
-abstract type Bypassable end
+abstract type PropertyObject end
 
 # Marker function: dispatch target for registered attributes.
 # A registered attribute (T, :name => f) becomes a method:
 #     _attr(::Val{:name}, x::T) = f(x)
 function _attr end
 
-function Base.getproperty(x::T, s::Symbol) where T <: Bypassable
+function Base.getproperty(x::T, s::Symbol) where T <: PropertyObject
     if hasfield(T, s)
         return getfield(x, s)
     elseif hasmethod(_attr, Tuple{Val{s}, T})
@@ -50,7 +50,7 @@ function Base.getproperty(x::T, s::Symbol) where T <: Bypassable
     end
 end
 
-function Base.hasproperty(x::T, s::Symbol) where T <: Bypassable
+function Base.hasproperty(x::T, s::Symbol) where T <: PropertyObject
     if hasfield(T, s)
         return true
     elseif hasmethod(_attr, Tuple{Val{s}, T})
@@ -64,7 +64,7 @@ end
     register(f, T::Type, s::Symbol = Symbol(f))
 
 Register function `f` as attribute `s` for type `T`, which must be a
-[`Bypassable`](@ref) subtype. After registration, `x.s` on any `x::T`
+[`PropertyObject`](@ref) subtype. After registration, `x.s` on any `x::T`
 returns `f(x)`.
 
 If `s` is omitted it defaults to `Symbol(f)` — the function's name.
@@ -89,7 +89,7 @@ end
 ```
 """
 function register(f, T::Type, s::Symbol)
-    T <: Bypassable || error("register: $T is not a subtype of Bypassable")
+    T <: PropertyObject || error("register: $T is not a subtype of PropertyObject")
     @eval _attr(::Val{$(QuoteNode(s))}, x::$T) = $f(x)
     return f
 end
@@ -101,7 +101,7 @@ register(f, T::Type) = register(f, T, Symbol(f))
     @register f(x::T) = ...
 
 Define a function and register it as an attribute of `T` (which must be
-a [`Bypassable`](@ref) subtype). Equivalent in effect to writing the
+a [`PropertyObject`](@ref) subtype). Equivalent in effect to writing the
 function definition followed by `register(f, T, :f)`.
 
 Unlike [`register`](@ref), this macro emits the registration as an
@@ -109,7 +109,7 @@ ordinary top-level method definition, so it is **safe to use inside a
 package module**. Precompilation handles it like any other method.
 
 Only the method introduced by this definition is registered. To register
-additional methods on other `Bypassable` types, place `@register` in front
+additional methods on other `PropertyObject` types, place `@register` in front
 of each definition.
 
 # Examples
@@ -141,7 +141,7 @@ macro register(funcdef)
     Tname = first_arg.args[2]
     # Emit two top-level definitions:
     #   1. The user's function, as written.
-    #   2. A method on Bypassing._attr that dispatches to it.
+    #   2. A method on PropertyArrays._attr that dispatches to it.
     # This avoids @eval entirely, so precompilation handles both like any
     # other ordinary method definition.
     return quote
@@ -156,7 +156,7 @@ end
     @register_fn f T
 
 Register an already-defined function `f` as an attribute of `T` (which must
-be a [`Bypassable`](@ref) subtype) under the attribute name `:f`. After
+be a [`PropertyObject`](@ref) subtype) under the attribute name `:f`. After
 registration, `x.f` on any `x::T` returns `f(x)`.
 
 Unlike [`register`](@ref), this macro emits a plain method definition so it
@@ -183,31 +183,31 @@ macro register_fn(fname, Tname)
 end
 
 # ============================================================================
-# Core Bypass Type
+# Core PropertyArray Type
 # ============================================================================
 
 """
-    Bypass{T, N, A<:AbstractArray{T, N}} <: AbstractArray{T, N}
+    PropertyArray{T, N, A<:AbstractArray{T, N}} <: AbstractArray{T, N}
 
 An `AbstractArray` wrapper that forwards property access to its elements.
 
 Instead of writing `getproperty.(A, :x)` to ask every element of an array
-for its `x` attribute, wrap the array as `Bypass(A)` and write
-`Bypass(A).x`. The container forwards the attribute request to each
+for its `x` attribute, wrap the array as `PropertyArray(A)` and write
+`PropertyArray(A).x`. The container forwards the attribute request to each
 element and returns the collected result.
 
 For any property name `s` other than `:data`, `bp.s` evaluates to
-`Bypass(getproperty.(bp, s))` — i.e. each element is asked for its `s`
-attribute, and the results are collected into a new `Bypass` of the
+`PropertyArray(getproperty.(bp, s))` — i.e. each element is asked for its `s`
+attribute, and the results are collected into a new `PropertyArray` of the
 same shape.
 
 The underlying array is accessible as `bp.data`.
 
 # Constructors
 ```julia
-Bypass(data::AbstractArray)         # wrap an existing array
-Bypass(T, dims::NTuple{N, Int})     # uninitialized array of element type T
-Bypass(T, dims::Int...)             # same, with separate dimension arguments
+PropertyArray(data::AbstractArray)         # wrap an existing array
+PropertyArray(T, dims::NTuple{N, Int})     # uninitialized array of element type T
+PropertyArray(T, dims::Int...)             # same, with separate dimension arguments
 ```
 
 # Examples
@@ -217,48 +217,48 @@ struct Point
     y::Float64
 end
 
-pts = Bypass([Point(i+0.0, j+0.0) for i in 1:2, j in 1:3])
+pts = PropertyArray([Point(i+0.0, j+0.0) for i in 1:2, j in 1:3])
 size(pts)    # (2, 3)
-pts.x        # 2×3 Bypass of x values
-pts.y        # 2×3 Bypass of y values
+pts.x        # 2×3 PropertyArray of x values
+pts.y        # 2×3 PropertyArray of y values
 pts[1, 2]    # Point(1.0, 2.0)
 ```
 
 Standard `AbstractArray` operations (`map`, `filter`, `broadcast`,
-indexing, `reshape`, etc.) all work as expected. Because `Bypass`
+indexing, `reshape`, etc.) all work as expected. Because `PropertyArray`
 participates in the array protocol, third-party map-likes such as
-`Distributed.pmap` and `ThreadsX.map` accept a `Bypass` directly.
+`Distributed.pmap` and `ThreadsX.map` accept a `PropertyArray` directly.
 """
-struct Bypass{T, N, A<:AbstractArray{T, N}} <: AbstractArray{T, N}
+struct PropertyArray{T, N, A<:AbstractArray{T, N}} <: AbstractArray{T, N}
     data::A
-    Bypass(data::A) where {T, N, A<:AbstractArray{T, N}} = new{T, N, A}(data)
+    PropertyArray(data::A) where {T, N, A<:AbstractArray{T, N}} = new{T, N, A}(data)
 end
 
-Bypass(::Type{T}, shape::NTuple{N, Int}) where {T, N} = Bypass(Array{T, N}(undef, shape))
-Bypass(::Type{T}, shape::Int...) where {T} = Bypass(T, shape)
+PropertyArray(::Type{T}, shape::NTuple{N, Int}) where {T, N} = PropertyArray(Array{T, N}(undef, shape))
+PropertyArray(::Type{T}, shape::Int...) where {T} = PropertyArray(T, shape)
 
-Base.size(A::Bypass) = size(getfield(A, :data))
-Base.axes(A::Bypass) = axes(getfield(A, :data))
-Base.IndexStyle(::Type{Bypass{T, N, A}}) where {T, N, A} = IndexStyle(A)
-Base.similar(A::Bypass, ::Type{T}, dims::Dims) where {T} = Bypass(similar(getfield(A, :data), T, dims))
-Base.view(A::Bypass, I...) = Bypass(view(getfield(A, :data), to_indices(A, I)...))
-@inline Base.setindex!(A::Bypass, v, I...) = setindex!(getfield(A, :data), v, to_indices(A, I)...)
+Base.size(A::PropertyArray) = size(getfield(A, :data))
+Base.axes(A::PropertyArray) = axes(getfield(A, :data))
+Base.IndexStyle(::Type{PropertyArray{T, N, A}}) where {T, N, A} = IndexStyle(A)
+Base.similar(A::PropertyArray, ::Type{T}, dims::Dims) where {T} = PropertyArray(similar(getfield(A, :data), T, dims))
+Base.view(A::PropertyArray, I...) = PropertyArray(view(getfield(A, :data), to_indices(A, I)...))
+@inline Base.setindex!(A::PropertyArray, v, I...) = setindex!(getfield(A, :data), v, to_indices(A, I)...)
 
-function Base.getindex(A::Bypass, I...)
+function Base.getindex(A::PropertyArray, I...)
     inds = to_indices(A, I)
     r = getfield(A, :data)[inds...]
-    return r isa AbstractArray ? Bypass(r) : r
+    return r isa AbstractArray ? PropertyArray(r) : r
 end
 
-function Base.getproperty(A::Bypass, s::Symbol)
+function Base.getproperty(A::PropertyArray, s::Symbol)
     if s === :data
         return getfield(A, :data)
     else
-        return Bypass(getproperty.(A, s))
+        return PropertyArray(getproperty.(A, s))
     end
 end
 
-function Base.hasproperty(A::Bypass, s::Symbol)
+function Base.hasproperty(A::PropertyArray, s::Symbol)
     if s === :data
         return true
     else
@@ -266,15 +266,15 @@ function Base.hasproperty(A::Bypass, s::Symbol)
     end
 end
 
-function Base.reshape(A::Bypass, dims::Union{Int,AbstractUnitRange}...)
-    Bypass(reshape(getfield(A, :data), dims...))
+function Base.reshape(A::PropertyArray, dims::Union{Int,AbstractUnitRange}...)
+    PropertyArray(reshape(getfield(A, :data), dims...))
 end
 
-function Base.summary(io::IO, A::Bypass{T,N}) where {T,N}
+function Base.summary(io::IO, A::PropertyArray{T,N}) where {T,N}
     if N == 1
-        print(io, length(A), "-element Bypass{", T, ", ", N, "}")
+        print(io, length(A), "-element PropertyArray{", T, ", ", N, "}")
     else
-        print(io, join(size(A), '×'), " Bypass{", T, ", ", N, "}")
+        print(io, join(size(A), '×'), " PropertyArray{", T, ", ", N, "}")
     end
 end
 
@@ -296,8 +296,8 @@ from `obj` and passing them positionally to `T`'s constructor. This works
 when `obj` already has those fields (e.g. when `obj` is a `NamedTuple`
 loaded from disk).
 
-These functions are used internally by [`Bypassing.save`](@ref) and
-[`Bypassing.load`](@ref) so that JLD2 files do not depend on any
+These functions are used internally by [`PropertyArrays.save`](@ref) and
+[`PropertyArrays.load`](@ref) so that JLD2 files do not depend on any
 user-defined types.
 
 # Example
@@ -315,17 +315,17 @@ translate(obj::T) where T = NamedTuple{fieldnames(T)}(getfield(obj, f) for f in 
 translate(obj, ::Type{T}) where T = T((getfield(obj, f) for f in fieldnames(T))...)
 
 """
-    Bypassing.save(filename, bp::Bypass)
-    Bypassing.save(filename, arr::AbstractArray)
+    PropertyArrays.save(filename, bp::PropertyArray)
+    PropertyArrays.save(filename, arr::AbstractArray)
 
-Save an array (or a `Bypass`) to a JLD2 file as a plain array of
+Save an array (or a `PropertyArray`) to a JLD2 file as a plain array of
 `NamedTuple`s. Element types are not preserved on disk so the file can
 be loaded into different struct definitions later (see [`load`](@ref)).
 
 Not exported, to avoid clashing with other packages' `save` functions.
-Call as `Bypassing.save`.
+Call as `PropertyArrays.save`.
 """
-function save(filename, self::Bypass)
+function save(filename, self::PropertyArray)
     save_object(filename, translate.(getfield(self, :data)))
 end
 
@@ -334,9 +334,9 @@ function save(filename, data::AbstractArray)
 end
 
 """
-    Bypassing.load(filename)              -> Bypass{<:NamedTuple}
-    Bypassing.load(T::Type, filename)     -> Bypass{T}
-    Bypassing.load(f, filename)           -> Bypass
+    PropertyArrays.load(filename)              -> PropertyArray{<:NamedTuple}
+    PropertyArrays.load(T::Type, filename)     -> PropertyArray{T}
+    PropertyArrays.load(f, filename)           -> PropertyArray
 
 Load a JLD2 file saved by [`save`](@ref).
 
@@ -346,29 +346,29 @@ With a function `f`, each element is reconstructed as `f(nt)`, where `nt`
 is the raw `NamedTuple` read from disk. This third form is useful when
 reconstruction needs custom logic beyond field-by-field copying.
 
-Not exported. Call as `Bypassing.load`.
+Not exported. Call as `PropertyArrays.load`.
 
 # Examples
 ```julia
-nt_array  = Bypassing.load("particles.jld2")
-particles = Bypassing.load(Particle, "particles.jld2")
+nt_array  = PropertyArrays.load("particles.jld2")
+particles = PropertyArrays.load(Particle, "particles.jld2")
 
 # Custom reconstructor
-particles = Bypassing.load("particles.jld2") do nt
+particles = PropertyArrays.load("particles.jld2") do nt
     Particle(nt.x, nt.y)
 end
 ```
 """
-load(filename::AbstractString) = Bypass(load_object(filename))
+load(filename::AbstractString) = PropertyArray(load_object(filename))
 
 function load(::Type{T}, filename::AbstractString) where T
     loaded = load_object(filename)
-    return T === NamedTuple ? Bypass(loaded) : Bypass(translate.(loaded, T))
+    return T === NamedTuple ? PropertyArray(loaded) : PropertyArray(translate.(loaded, T))
 end
 
 function load(f, filename::AbstractString)
     loaded = load_object(filename)
-    return Bypass(f.(loaded))
+    return PropertyArray(f.(loaded))
 end
 
 end
