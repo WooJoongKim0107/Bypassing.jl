@@ -1,40 +1,47 @@
 # Bypassing.jl
 
-A small Julia package providing two complementary tools for working with
-collections of structured data:
+A small Julia package for accessing element attributes through a container.
 
+In Julia, accessing the same property from every element of an array is
+usually written as an explicit broadcast:
+
+```julia
+getproperty.(A, :x)
+```
+
+`Bypass` provides a wrapper where property access is forwarded to the
+elements:
+
+```julia
+bp = Bypass(A)
+bp.x
+```
+
+This is equivalent to:
+
+```julia
+getproperty.(A, :x)
+```
+
+Other array operations are intended to behave as they do for the wrapped
+array. Indexing, `size`, `axes`, `reshape`, `map`, `filter`, and similar
+operations remain ordinary array operations; the main special case is
+`getproperty`. The original array is available as `.data`.
+
+`Bypassable` is a small companion interface for registering computed
+attributes on element types. For example, a calculation such as
+`angle.(A)` can be exposed as `Bypass(A).angle` after registration.
+
+The package provides two complementary tools:
+
+- **`Bypass`** — an `AbstractArray` wrapper that forwards property
+  access to its elements.
 - **`Bypassable`** — an abstract type that lets you register functions as
   "virtual attributes" of a struct, accessible with `.` syntax.
-- **`Bypass`** — an `AbstractArray` wrapper that broadcasts property
-  access to its elements.
-
-Together they let you write code like `particles.speed_sq` where
-`speed_sq` is a function registered on `Particle`, and have it
-evaluate element-wise across the whole collection.
 
 ---
 
-## Installation
-
-This package is not yet registered in the General registry. Install it directly
-from GitHub:
-
-```julia
-pkg> add https://github.com/WooJoongKim0107/Bypassing.jl
-```
-
-Or, for local development:
-
-```julia
-pkg> dev /path/to/Bypassing.jl
-```
-
----
-
-## `Bypassable` — Attribute Registration
-
-`Bypassable` is an abstract type. Any struct that inherits from it can
-have functions registered as accessible attributes.
+## Example
 
 ```julia
 using Bypassing
@@ -42,63 +49,189 @@ using Bypassing
 struct Particle <: Bypassable
     x::Float64
     y::Float64
-    m::Float64
+end
+
+@register angle(p::Particle) = atan(p.y, p.x) |> rad2deg
+@register radius(p::Particle) = sqrt(p.x^2 + p.y^2)
+
+particles = Bypass([Particle(i+0.0, j+0.0) for i in 1:2, j in 1:3])
+```
+
+Here `x` and `y` are particle positions. A plain array would use
+`getproperty.(A, :x)` to collect all `x` positions. A `Bypass` wrapper
+uses property syntax:
+
+```julia
+particles.x
+```
+
+```text
+2×3 Bypass{Float64, 2}:
+ 1.0  1.0  1.0
+ 2.0  2.0  2.0
+```
+
+Registered attributes use the same property syntax:
+
+```julia
+particles.angle
+```
+
+```text
+2×3 Bypass{Float64, 2}:
+ 45.0     63.4349  71.5651
+ 26.5651  45.0     56.3099
+```
+
+On a single element, registered attributes are also available through the
+same syntax:
+
+```julia
+p = Particle(3.0, 4.0)
+
+p.x
+p.radius
+p.angle
+```
+
+```text
+3.0
+5.0
+53.13010235415598
+```
+
+The same attributes can be used in ordinary array operations:
+
+```julia
+queried = filter(particles) do p
+    p.angle >= 45 && p.radius < 3
+end
+
+queried.radius
+```
+
+```text
+3-element Bypass{Float64, 1}:
+ 1.4142135623730951
+ 2.23606797749979
+ 2.8284271247461903
+```
+
+The filtered result is still a `Bypass`, so it can be passed to later
+array-style work. For example, if each selected particle requires a
+heavier calculation:
+
+```julia
+using Distributed
+
+results = pmap(queried) do p
+    # Replace this with the expensive per-particle computation.
+    (; angle = p.angle, radius = p.radius)
 end
 ```
 
-### Registering attributes
+---
 
-Two main forms:
+## Registering Attributes
+
+`Bypassable` is an abstract type. Any struct that inherits from it can
+have functions registered as accessible attributes.
+
+### In Package Code
+
+Use `@register`. It emits ordinary top-level method definitions, so
+precompilation handles it like other Julia code.
 
 ```julia
-# Inside a package module — use the @register macro.
-# It emits a regular top-level method definition, so precompilation
-# handles it like any other code.
 @register function angle(p::Particle)
     atan(p.y, p.x) |> rad2deg
 end
 
 @register radius(p::Particle) = sqrt(p.x^2 + p.y^2)
+```
 
-# Interactively (REPL, scripts) — the register function is more flexible.
-# It accepts already-defined functions and supports do-block syntax.
+### In the REPL or Scripts
 
-speed_sq(p::Particle) = p.x^2 + p.y^2
-register(speed_sq, Particle)
+Use `register` when working interactively or when the registration is
+genuinely dynamic.
 
-register(Particle, :momentum) do p
-    p.m * sqrt(p.x^2 + p.y^2)
+```julia
+radius_sq(p::Particle) = p.x^2 + p.y^2
+register(radius_sq, Particle)
+
+register(Particle, :is_right_side) do p
+    p.x > 0
 end
+```
+
+After registration, the attributes are accessed through property syntax:
+
+```julia
+p = Particle(3.0, 4.0)
+
+p.radius_sq
+p.is_right_side
+```
+
+```text
+25.0
+true
 ```
 
 > **Note.** Do not call `register` at the top level of a package module.
 > It uses `@eval` internally to add methods at runtime, which conflicts
 > with precompilation. Use `@register` inside package code; use `register`
 > for interactive work or for cases where the registration is genuinely
-> dynamic (e.g. choosing what to register based on a runtime condition,
-> inside a function that you only ever call from the REPL).
+> dynamic.
 
-After registration, the attributes are accessed like real fields:
+---
+
+## Array Behavior
+
+`Bypass` wraps an `AbstractArray`. The wrapped array is available as
+`.data`. For any other property name, property access is forwarded
+element-wise:
 
 ```julia
-p = Particle(3.0, 4.0, 2.0)
-p.x          # 3.0  (real field)
-p.speed_sq   # 25.0 (registered)
-p.momentum   # 10.0
-p.angle      # 53.13...
-p.radius     # 5.0
+particles.x       # Bypass of x values
+particles.angle   # Bypass of registered angle values
 ```
 
-### How it works
+For operations other than property access, `Bypass` follows the ordinary
+`AbstractArray` interface and preserves the behavior of the wrapped
+container where possible:
+
+```julia
+size(particles)              # (2, 3)
+particles[1, 2]              # Particle(1.0, 2.0)
+particles[1, :]              # a 1D Bypass slice
+reshape(particles, 6)        # flatten to 1D
+map(p -> p.x^2, particles)   # returns a Bypass via similar
+```
+
+Code that works with arrays generally accepts a `Bypass` as well. This
+includes standard tools such as `map` and `filter`, and third-party
+map-like functions such as `Distributed.pmap` or `ThreadsX.map`.
+
+Constructors:
+
+```julia
+Bypass(data)            # wrap an existing array
+Bypass(Float64, 10, 20) # 10x20 uninitialized array of Float64
+Bypass(Float64, (3, 4)) # tuple form
+```
+
+---
+
+## How Attribute Registration Works
 
 `register` adds a method to an internal marker function `_attr`, keyed
-on a `Val{:name}` and the target type. When you write `p.speed_sq`,
-Julia's getproperty hook calls `_attr(Val(:speed_sq), p)`, which
-dispatches to the registered method via the usual multiple-dispatch
-machinery.
+on a `Val{:name}` and the target type. When you write `p.angle`, Julia's
+`getproperty` hook calls `_attr(Val(:angle), p)`, which dispatches to the
+registered method via the usual multiple-dispatch machinery.
 
 Because dispatch is used, attributes registered on a supertype are
-automatically visible on all subtypes — no extra registration needed.
+automatically visible on all subtypes:
 
 ```julia
 abstract type Animal <: Bypassable end
@@ -106,56 +239,12 @@ abstract type Animal <: Bypassable end
 @register sound(a::Animal) = "generic noise"
 
 struct Dog <: Animal end
-Dog().sound   # "generic noise"  — inherited automatically
+
+Dog().sound
 ```
 
----
-
-## `Bypass` — Property Bypassing Arrays
-
-`Bypass` wraps an `AbstractArray`. For any property name other than
-`:data` (which exposes the underlying array), property access is
-forwarded element-wise:
-
-```julia
-particles = Bypass([Particle(i+0.0, j+0.0, 1.0) for i in 1:3, j in 1:3])
-
-particles.x          # 3×3 Bypass of x values
-particles.speed_sq   # 3×3 Bypass of registered attribute values
-```
-
-The result is itself a `Bypass`, so accesses can chain naturally and
-participate in further computations.
-
-### Standard array operations
-
-`Bypass <: AbstractArray`, so the full array protocol works:
-
-```julia
-size(particles)              # (3, 3)
-particles[1, 2]              # a Particle
-particles[1, :]              # a 1D Bypass slice
-reshape(particles, 9)        # flatten to 1D
-map(p -> p.x^2, particles)   # returns a Bypass (via similar)
-```
-
-Third-party `map`-likes such as `Distributed.pmap`, `ThreadsX.map`, etc.
-accept a `Bypass` directly:
-
-```julia
-using Distributed
-heavy = pmap(particles) do p
-    sleep(0.05)
-    p.x ^ p.y
-end
-```
-
-### Constructors
-
-```julia
-Bypass(data)            # wrap an existing array
-Bypass(Float64, 10, 20) # 10×20 uninitialized array of Float64
-Bypass(Float64, (3, 4)) # tuple form
+```text
+"generic noise"
 ```
 
 ---
@@ -172,13 +261,12 @@ Bypassing.save("particles.jld2", particles)
 # Load as raw NamedTuples (default)
 nt_array = Bypassing.load("particles.jld2")
 
-# Load as a specific type — reconstructs each element via translate()
+# Load as a specific type; reconstructs each element via translate()
 particles = Bypassing.load(Particle, "particles.jld2")
 
-# Load with a custom reconstructor — for any logic that doesn't reduce
-# to plain field-by-field copying
+# Load with a custom reconstructor
 particles = Bypassing.load("particles.jld2") do nt
-    Particle(nt.x, nt.y, nt.x * nt.y)   # derive mass from x and y
+    Particle(nt.x, nt.y)
 end
 ```
 
@@ -199,45 +287,16 @@ p  = translate(nt, Point)           # Point(1.0, 2.0)
 
 ---
 
-## Working with elements ergonomically
+## Exported Names
 
-A common pattern is element-wise computation over a `Bypass`. Because
-`Bypass` is just an `AbstractArray`, the standard tools apply:
-
-```julia
-# Single attribute access — already broadcast for free
-speeds = particles.speed_sq
-
-# General element-wise computation
-mags = map(p -> sqrt(p.x^2 + p.y^2), particles)
-
-# Filtering
-fast = particles[map(p -> p.x > 50, particles)]
-# or equivalently
-fast = filter(p -> p.x > 50, particles)
-```
-
-If you find yourself repeating a computation, register it as an attribute:
-
-```julia
-@register magnitude(p::Particle) = sqrt(p.x^2 + p.y^2)
-
-# Now this works directly:
-particles.magnitude
-```
-
----
-
-## Exported names
-
-| Name             | Kind        | Purpose                              |
-|------------------|-------------|--------------------------------------|
-| `Bypassable`     | abstract    | base type for attribute registration |
-| `register`       | function    | register a function as an attribute  |
-| `@register`      | macro       | define and register in one step      |
-| `@register_fn`   | macro       | register an already-defined function |
+| Name             | Kind        | Purpose                                |
+|------------------|-------------|----------------------------------------|
 | `Bypass`         | struct      | array with element-wise property access |
-| `translate`      | function    | struct ↔ NamedTuple conversion       |
+| `Bypassable`     | abstract    | base type for attribute registration   |
+| `register`       | function    | register a function as an attribute    |
+| `@register`      | macro       | define and register in one step        |
+| `@register_fn`   | macro       | register an already-defined function   |
+| `translate`      | function    | struct <-> NamedTuple conversion       |
 
 Not exported (call with `Bypassing.` prefix):
 
@@ -246,8 +305,25 @@ Not exported (call with `Bypassing.` prefix):
 | `Bypassing.save`  | function | JLD2 serialization   |
 | `Bypassing.load`  | function | JLD2 deserialization |
 
-All exported names also have inline docstrings; use `?Bypassable`, `?register`,
-etc. at the REPL for details.
+All exported names also have inline docstrings; use `?Bypassable`,
+`?register`, etc. at the REPL for details.
+
+---
+
+## Installation
+
+This package is not yet registered in the General registry. Install it
+directly from GitHub:
+
+```julia
+pkg> add https://github.com/WooJoongKim0107/Bypassing.jl
+```
+
+Or, for local development:
+
+```julia
+pkg> dev /path/to/Bypassing.jl
+```
 
 ---
 

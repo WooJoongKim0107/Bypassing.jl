@@ -12,7 +12,9 @@ using JLD2: save_object, load_object
 
 Base type for structs that opt into the attribute-registration system.
 A function registered for a `Bypassable` subtype can be accessed as if
-it were a real field of that type.
+it were a real field of that type. This is useful with [`Bypass`](@ref):
+after registering a calculation such as `angle(p)`, a `Bypass` array of
+particles can expose it as `particles.angle` instead of `angle.(particles)`.
 
 # Example
 ```julia
@@ -21,12 +23,12 @@ struct Particle <: Bypassable
     y::Float64
 end
 
-register(Particle, :speed_sq) do p
+register(Particle, :radius_sq) do p
     p.x^2 + p.y^2
 end
 
 p = Particle(3.0, 4.0)
-p.speed_sq   # 25.0
+p.radius_sq  # 25.0
 ```
 
 See [`register`](@ref) and [`@register`](@ref) for ways to add attributes.
@@ -77,12 +79,12 @@ which emits the method definition as ordinary top-level code.
 # Examples (interactive use)
 ```julia
 # Plain function reference
-speed_sq(p::Particle) = p.x^2 + p.y^2
-register(speed_sq, Particle)
+radius_sq(p::Particle) = p.x^2 + p.y^2
+register(radius_sq, Particle)
 
 # do-block form (anonymous function)
-register(Particle, :momentum) do p
-    p.m * sqrt(p.x^2 + p.y^2)
+register(Particle, :angle) do p
+    atan(p.y, p.x) |> rad2deg
 end
 ```
 """
@@ -189,6 +191,11 @@ end
 
 An `AbstractArray` wrapper that forwards property access to its elements.
 
+Instead of writing `getproperty.(A, :x)` to ask every element of an array
+for its `x` attribute, wrap the array as `Bypass(A)` and write
+`Bypass(A).x`. The container forwards the attribute request to each
+element and returns the collected result.
+
 For any property name `s` other than `:data`, `bp.s` evaluates to
 `Bypass(getproperty.(bp, s))` — i.e. each element is asked for its `s`
 attribute, and the results are collected into a new `Bypass` of the
@@ -264,7 +271,11 @@ function Base.reshape(A::Bypass, dims::Union{Int,AbstractUnitRange}...)
 end
 
 function Base.summary(io::IO, A::Bypass{T,N}) where {T,N}
-    print(io, join(size(A), '×'), " Bypass{", T, ", ", N, "}")
+    if N == 1
+        print(io, length(A), "-element Bypass{", T, ", ", N, "}")
+    else
+        print(io, join(size(A), '×'), " Bypass{", T, ", ", N, "}")
+    end
 end
 
 # ============================================================================
@@ -342,9 +353,9 @@ Not exported. Call as `Bypassing.load`.
 nt_array  = Bypassing.load("particles.jld2")
 particles = Bypassing.load(Particle, "particles.jld2")
 
-# Custom reconstructor — e.g. derive mass from other fields
+# Custom reconstructor
 particles = Bypassing.load("particles.jld2") do nt
-    Particle(nt.x, nt.y, nt.x * nt.y)
+    Particle(nt.x, nt.y)
 end
 ```
 """
