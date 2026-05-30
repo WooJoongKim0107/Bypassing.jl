@@ -251,21 +251,19 @@ Dog().sound
 
 ## I/O
 
-Save and load functions are **not exported**, to avoid clashing with
-the `save`/`load` exported by other packages (GLMakie, FileIO, JLD2,
-etc.). Call them with the module prefix.
+`psave` and `pload` save and load `PropertyArray` data through JLD2.
 
 ```julia
-PropertyArrays.save("particles.jld2", particles)
+psave("particles.jld2", particles)
 
 # Load as raw NamedTuples (default)
-nt_array = PropertyArrays.load("particles.jld2")
+nt_array = pload("particles.jld2")
 
 # Load as a specific type; reconstructs each element via translate()
-particles = PropertyArrays.load(Particle, "particles.jld2")
+particles = pload(Particle, "particles.jld2")
 
 # Load with a custom reconstructor
-particles = PropertyArrays.load("particles.jld2") do nt
+particles = pload("particles.jld2") do nt
     Particle(nt.x, nt.y)
 end
 ```
@@ -298,14 +296,9 @@ p  = translate(nt, Point)           # Point(1.0, 2.0)
 | `register`       | function    | register a function as an attribute    |
 | `@register`      | macro       | define and register in one step        |
 | `@register_fn`   | macro       | register an already-defined function   |
+| `psave`          | function    | JLD2 serialization                     |
+| `pload`          | function    | JLD2 deserialization                   |
 | `translate`      | function    | struct <-> NamedTuple conversion       |
-
-Not exported (call with `PropertyArrays.` prefix):
-
-| Name              | Kind     | Purpose              |
-|-------------------|----------|----------------------|
-| `PropertyArrays.save` | function | JLD2 serialization   |
-| `PropertyArrays.load` | function | JLD2 deserialization |
 
 All exported names also have inline docstrings; use `?PArray`, `?PObject`,
 `?register`, etc. at the REPL for details.

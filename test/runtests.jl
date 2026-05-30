@@ -8,7 +8,7 @@ Test coverage includes:
   `reshape`, `map`, and `filter`.
 - `PArray` constructors and mutation through `setindex!`.
 - `translate` conversions between structs and `NamedTuple`s.
-- `PropertyArrays.save` / `PropertyArrays.load` JLD2 round trips, including typed and
+- `psave` / `pload` JLD2 round trips, including typed and
   custom reconstruction.
 """
 
@@ -111,17 +111,17 @@ end
         filename = joinpath(dir, "particles.jld2")
         particles = PArray([TestParticle(1.0, 2.0), TestParticle(3.0, 4.0)])
 
-        PropertyArrays.save(filename, particles)
+        psave(filename, particles)
 
-        loaded_nt = PropertyArrays.load(filename)
+        loaded_nt = pload(filename)
         @test loaded_nt isa PArray
         @test loaded_nt.data == translate.(particles.data)
 
-        loaded_particles = PropertyArrays.load(TestParticle, filename)
+        loaded_particles = pload(TestParticle, filename)
         @test loaded_particles isa PArray
         @test loaded_particles.data == particles.data
 
-        loaded_custom = PropertyArrays.load(filename) do row
+        loaded_custom = pload(filename) do row
             TestParticle(row.x + 1, row.y + 1)
         end
         @test loaded_custom.data == [TestParticle(2.0, 3.0), TestParticle(4.0, 5.0)]

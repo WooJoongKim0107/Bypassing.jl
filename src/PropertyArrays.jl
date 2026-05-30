@@ -1,5 +1,5 @@
 module PropertyArrays
-export PropertyObject, PObject, register, @register, @register_fn, PropertyArray, PArray, translate
+export PropertyObject, PObject, register, @register, @register_fn, PropertyArray, PArray, translate, psave, pload
 
 using JLD2: save_object, load_object
 
@@ -313,8 +313,8 @@ from `obj` and passing them positionally to `T`'s constructor. This works
 when `obj` already has those fields (e.g. when `obj` is a `NamedTuple`
 loaded from disk).
 
-These functions are used internally by [`PropertyArrays.save`](@ref) and
-[`PropertyArrays.load`](@ref) so that JLD2 files do not depend on any
+These functions are used internally by [`psave`](@ref) and
+[`pload`](@ref) so that JLD2 files do not depend on any
 user-defined types.
 
 # Example
@@ -332,30 +332,27 @@ translate(obj::T) where T = NamedTuple{fieldnames(T)}(getfield(obj, f) for f in 
 translate(obj, ::Type{T}) where T = T((getfield(obj, f) for f in fieldnames(T))...)
 
 """
-    PropertyArrays.save(filename, bp::PropertyArray)
-    PropertyArrays.save(filename, arr::AbstractArray)
+    psave(filename, bp::PropertyArray)
+    psave(filename, arr::AbstractArray)
 
 Save an array (or a `PropertyArray`) to a JLD2 file as a plain array of
 `NamedTuple`s. Element types are not preserved on disk so the file can
-be loaded into different struct definitions later (see [`load`](@ref)).
-
-Not exported, to avoid clashing with other packages' `save` functions.
-Call as `PropertyArrays.save`.
+be loaded into different struct definitions later (see [`pload`](@ref)).
 """
-function save(filename, self::PropertyArray)
+function psave(filename, self::PropertyArray)
     save_object(filename, translate.(getfield(self, :data)))
 end
 
-function save(filename, data::AbstractArray)
+function psave(filename, data::AbstractArray)
     save_object(filename, translate.(data))
 end
 
 """
-    PropertyArrays.load(filename)              -> PropertyArray{<:NamedTuple}
-    PropertyArrays.load(T::Type, filename)     -> PropertyArray{T}
-    PropertyArrays.load(f, filename)           -> PropertyArray
+    pload(filename)              -> PropertyArray{<:NamedTuple}
+    pload(T::Type, filename)     -> PropertyArray{T}
+    pload(f, filename)           -> PropertyArray
 
-Load a JLD2 file saved by [`save`](@ref).
+Load a JLD2 file saved by [`psave`](@ref).
 
 Without a transformer the elements are returned as raw `NamedTuple`s.
 With a type `T`, each element is reconstructed as `T` via [`translate`](@ref).
@@ -363,27 +360,25 @@ With a function `f`, each element is reconstructed as `f(nt)`, where `nt`
 is the raw `NamedTuple` read from disk. This third form is useful when
 reconstruction needs custom logic beyond field-by-field copying.
 
-Not exported. Call as `PropertyArrays.load`.
-
 # Examples
 ```julia
-nt_array  = PropertyArrays.load("particles.jld2")
-particles = PropertyArrays.load(Particle, "particles.jld2")
+nt_array  = pload("particles.jld2")
+particles = pload(Particle, "particles.jld2")
 
 # Custom reconstructor
-particles = PropertyArrays.load("particles.jld2") do nt
+particles = pload("particles.jld2") do nt
     Particle(nt.x, nt.y)
 end
 ```
 """
-load(filename::AbstractString) = PropertyArray(load_object(filename))
+pload(filename::AbstractString) = PropertyArray(load_object(filename))
 
-function load(::Type{T}, filename::AbstractString) where T
+function pload(::Type{T}, filename::AbstractString) where T
     loaded = load_object(filename)
     return T === NamedTuple ? PropertyArray(loaded) : PropertyArray(translate.(loaded, T))
 end
 
-function load(f, filename::AbstractString)
+function pload(f, filename::AbstractString)
     loaded = load_object(filename)
     return PropertyArray(f.(loaded))
 end
